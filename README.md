@@ -17,7 +17,7 @@ Alpha Beta Pruning on a Minimax Tree
 
 
 
-Monte Carlo Search Tree [IN PROGRESS]
+Monte Carlo Tree Search [IN PROGRESS]
 
 
 
