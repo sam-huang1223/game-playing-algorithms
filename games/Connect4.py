@@ -2,10 +2,11 @@ import numpy as np
 
 from collections import Counter
 from copy import deepcopy
+
 from os.path import dirname, abspath
 from importlib.machinery import SourceFileLoader
 
-''' Specify which algorithm to use '''
+''' User input: Specify which algorithm to use '''
 selection = 'Alpha Beta Pruning'
 
 parent_dir = dirname(dirname(abspath(__file__)))
@@ -16,11 +17,17 @@ if selection == 'Alpha Beta Pruning':
 elif selection == 'Monte Carlo Search Tree':
     pass
 
+def get_type(x):
+    return 'MAX' if x == 1 else 'MIN'
+
+# TODO add comments to this
+# TODO visualize player positions (board value) using bokeh
+
 class Connect4:
     def __init__(self, board):
         self.human = 1
         self.ai = -1
-        self.constant = int(10e6)
+        self.constant = int(10e9)
         self.nodes = []
         self.edges = []
         self.node_num = 0
@@ -38,11 +45,12 @@ class Connect4:
         else:
             type = -1
         self.node_num += 1
-        self.nodes.append([starting_node_name, self.get_type(type)])
+        self.nodes.append([starting_node_name, get_type(type)])
         moves = self.get_possible_moves(starting_state)
 
-        if int(starting_node_name[starting_node_name.find('-') - 1:starting_node_name.find('-')]) + 1 > self.search_depth or moves == []:
-            outcome = self.evaluate(starting_state, self.ai, moves == [])
+        depth = int(starting_node_name[starting_node_name.find('-') - 1:starting_node_name.find('-')])
+        outcome = self.evaluate(starting_state, self.ai, moves == [])
+        if (depth + 1) > self.search_depth or moves == [] or abs(outcome) == self.constant:
             self.path_taken.append(outcome)
             self.outcomes[str(self.path_taken)] = starting_state
             self.edges.append([starting_node_name, outcome])
@@ -51,16 +59,13 @@ class Connect4:
         for move in moves:
             potential_state = deepcopy(starting_state)
             potential_state = self.modify_state(potential_state, move, player)
-            potential_node_name = str(self.node_num) + ' ' + self.get_type(-type) + str(int(starting_node_name[starting_node_name.find('-') - 1:starting_node_name.find('-')]) + 1) + '-' + str(move)
+            potential_node_name = str(self.node_num) + ' ' + get_type(-type) + str(int(starting_node_name[starting_node_name.find('-') - 1:starting_node_name.find('-')]) + 1) + '-' + str(move)
             self.edges.append([starting_node_name, potential_node_name])
             self.construct_graph(potential_state, -player, potential_node_name)
         self.path_taken = self.path_taken[:-1]
 
-    def get_type(self, x):
-        return 'MAX' if x == 1 else 'MIN'
-
     def evaluate(self, state, player, end):
-        '''returns the value of a state when no possible moves exist'''
+        '''returns the value of a state'''
         score = 0
         result = set()
         for row in state:
@@ -82,10 +87,8 @@ class Connect4:
             return score
 
     def estimate_value(self, array, player):
-        exp = 1
-        count = 1
-        tokens = 1
         value = 0
+        exp, count, tokens = (1, 1, 1)
         peices = [i for i in range(len(array)) if array[i] == player]
 
         for token in peices:
@@ -102,9 +105,7 @@ class Connect4:
                     if tokens == 4:
                         value += count ** exp
                         break
-            count = 1
-            tokens = 1
-            exp = 1
+            count, tokens, exp = (1, 1, 1)
             if token > 2:
                 for pos in range(token, 0, -1):
                     tokens += 1
@@ -162,6 +163,11 @@ class Connect4:
 
 if __name__ == '__main__':
     game = Connect4(board=np.zeros((8,8), dtype=int))
+
+    #problem: specific sequence of moves (4 3 5 4 5 2 2 3 3 1 0 1) was causing poor gameplay
+    #         issue was that search tree branching continued after making game-ending move,
+    #         leading to weird behaviour using the minimax algorithm.
+    #solution: I cut off the search tree whenever a move leads to a win
 
     while True:
         possible_human_moves = game.get_possible_moves(game.state)
