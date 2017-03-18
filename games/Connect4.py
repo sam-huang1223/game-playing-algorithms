@@ -3,31 +3,87 @@ import numpy as np
 from collections import Counter
 from copy import deepcopy
 
-from os.path import dirname, abspath
+from os.path import dirname, abspath, basename
 from importlib.machinery import SourceFileLoader
 
 ''' User input: Specify which algorithm to use '''
-selection = 'Alpha Beta Pruning'
+#selection = 'Alpha Beta Pruning'
+selection = 'Monte Carlo Tree Search'
 
 parent_dir = dirname(dirname(abspath(__file__)))
 
 #load module from algorithms folder
 if selection == 'Alpha Beta Pruning':
     Alpha_Beta_Pruning = SourceFileLoader('Alpha_Beta_Pruning', parent_dir + '\\algorithms\\' + 'Alpha_Beta_Pruning.py').load_module()
-elif selection == 'Monte Carlo Search Tree':
-    pass
+elif selection == 'Monte Carlo Tree Search':
+    MC_Tree_Search = SourceFileLoader('MC_Tree_Search', parent_dir + '\\algorithms\\' + 'MC_Tree_Search.py').load_module()
 
 def get_type(x):
     return 'MAX' if x == 1 else 'MIN'
 
-# TODO add comments to this
 # TODO visualize player positions (board value) using bokeh
+
+constant = int(10e9)
+
+def generate_moves(state):
+    '''return list of possible moves'''
+    return [idx for idx in range(8) if state[0][idx] == 0]
+
+def modify_state(state, move, player):
+    '''updates a state with a given move'''
+    state[np.where(state[:,move]==0)[0][-1]][move] = player
+    return state
+
+def game_outcome(state, player):
+    '''returns the value of a state'''
+    result = set([0])
+    for row in state:
+        if check_plausibility(row):
+            result.add(check_end(indices_of_duplicates(row, player), player))
+    for column in state.transpose():
+        if check_plausibility(column):
+            result.add(check_end(indices_of_duplicates(column, player), player))
+    for diagonal in get_diagonals(state):
+        if check_plausibility(diagonal):
+            result.add(check_end(indices_of_duplicates(diagonal, player), player))
+
+    return max(min(result), max(result), key=abs)
+
+def check_plausibility(arr):
+    '''checks if array can possibly contain a win'''
+    count = Counter(arr)
+    if count[-1] >= 4 or count[1] >= 4:
+        return True
+    else:
+        return False
+
+def check_end(dict, player, counter=1, level=1):
+    '''checks whether either player won'''
+    if level > 2:
+        return 0
+    for i in range(len(dict[player]) - 1):
+        if dict[player][i+1] == dict[player][i] + 1:
+            counter += 1
+        else:
+            counter = 1
+        if counter == 4:
+            return -player*constant
+    return check_end(dict,-player,level=level+1)
+
+def indices_of_duplicates(state, player):
+    '''returns dictionary with keys as possible values and values as lists of indices'''
+    return {token: [index for index in range(len(state)) if state[index] == token] for token in [0, player, -player]}
+
+def get_diagonals(state):
+    '''get all diagonals of length >= 4'''
+    diagonals = [state[::-1, :].diagonal(i) for i in range(-state.shape[0] + 4, state.shape[1] - 3)]
+    diagonals.extend(state.diagonal(i) for i in range(state.shape[1] - 4, -state.shape[0] + 3, -1))
+    return [element.tolist() for element in diagonals]
 
 class Connect4:
     def __init__(self, board):
         self.human = 1
         self.ai = -1
-        self.constant = int(10e9)
         self.nodes = []
         self.edges = []
         self.node_num = 0
@@ -46,11 +102,11 @@ class Connect4:
             type = -1
         self.node_num += 1
         self.nodes.append([starting_node_name, get_type(type)])
-        moves = self.get_possible_moves(starting_state)
+        moves = generate_moves(starting_state)
 
         depth = int(starting_node_name[starting_node_name.find('-') - 1:starting_node_name.find('-')])
         outcome = self.evaluate(starting_state, self.ai, moves == [])
-        if (depth + 1) > self.search_depth or moves == [] or abs(outcome) == self.constant:
+        if (depth + 1) > self.search_depth or moves == [] or abs(outcome) == constant:
             self.path_taken.append(outcome)
             self.outcomes[str(self.path_taken)] = starting_state
             self.edges.append([starting_node_name, outcome])
@@ -58,7 +114,7 @@ class Connect4:
             return
         for move in moves:
             potential_state = deepcopy(starting_state)
-            potential_state = self.modify_state(potential_state, move, player)
+            potential_state = modify_state(potential_state, move, player)
             potential_node_name = str(self.node_num) + ' ' + get_type(-type) + str(int(starting_node_name[starting_node_name.find('-') - 1:starting_node_name.find('-')]) + 1) + '-' + str(move)
             self.edges.append([starting_node_name, potential_node_name])
             self.construct_graph(potential_state, -player, potential_node_name)
@@ -70,18 +126,18 @@ class Connect4:
         result = set()
         for row in state:
             score += self.estimate_value(row, player)
-            if self.check_plausibility(row):
-                result.add(self.check_end(self.indices_of_duplicates(row), self.human))
+            if check_plausibility(row):
+                result.add(check_end(indices_of_duplicates(row, self.human), self.human))
         for column in state.transpose():
             score += self.estimate_value(column, player)
-            if self.check_plausibility(column):
-                result.add(self.check_end(self.indices_of_duplicates(column), self.human))
-        for diagonal in self.get_diagonals(state):
+            if check_plausibility(column):
+                result.add(check_end(indices_of_duplicates(column, self.human), self.human))
+        for diagonal in get_diagonals(state):
             score += self.estimate_value(diagonal, player)
-            if self.check_plausibility(diagonal):
-                result.add(self.check_end(self.indices_of_duplicates(diagonal), self.human))
+            if check_plausibility(diagonal):
+                result.add(check_end(indices_of_duplicates(diagonal, self.human), self.human))
 
-        if (self.constant in result) or (-self.constant in result) or (len(result) > 0 and end):
+        if (constant in result) or (-constant in result) or (len(result) > 0 and end):
             return max(min(result),max(result),key=abs)
         else:
             return score
@@ -89,9 +145,9 @@ class Connect4:
     def estimate_value(self, array, player):
         value = 0
         exp, count, tokens = (1, 1, 1)
-        peices = [i for i in range(len(array)) if array[i] == player]
+        pieces = [i for i in range(len(array)) if array[i] == player]
 
-        for token in peices:
+        for token in pieces:
             if (len(array) - 1) - token > 2:
                 for pos in range(token, len(array) - 1):
                     tokens += 1
@@ -121,46 +177,6 @@ class Connect4:
                         break
         return value
 
-    def indices_of_duplicates(self, state):
-        '''returns dictionary with keys as possible values and values as lists of indices'''
-        return {token: [index for index in range(len(state)) if state[index] == token] for token in [0, self.human, self.ai]}
-
-    def get_diagonals(self, state):
-        '''get all diagonals of length >= 4'''
-        diagonals = [state[::-1, :].diagonal(i) for i in range(-state.shape[0] + 4, state.shape[1] - 3)]
-        diagonals.extend(state.diagonal(i) for i in range(state.shape[1] - 4, -state.shape[0] + 3, -1))
-        return [element.tolist() for element in diagonals]
-
-    def check_plausibility(self, arr):
-        '''checks if array can possibly contain a win'''
-        count = Counter(arr)
-        if count[-1] >= 4 or count[1] >= 4:
-            return True
-        else:
-            return False
-
-    def check_end(self, dict, player, counter=1, level=1):
-        '''checks whether either player won'''
-        if level > 2:
-            return 0
-        for i in range(len(dict[player]) - 1):
-            if dict[player][i+1] == dict[player][i] + 1:
-                counter += 1
-            else:
-                counter = 1
-            if counter == 4:
-                return -player*self.constant
-        return self.check_end(dict,-player,level=level+1)
-
-    def get_possible_moves(self, state):
-        '''return list of possible moves'''
-        return [idx for idx in range(8) if state[0][idx] == 0]
-
-    def modify_state(self, state, move, player):
-        '''updates a state with a given move'''
-        state[np.where(state[:,move]==0)[0][-1]][move] = player
-        return state
-
 if __name__ == '__main__':
     game = Connect4(board=np.zeros((8,8), dtype=int))
 
@@ -168,10 +184,13 @@ if __name__ == '__main__':
     #         issue was that search tree branching continued after making game-ending move,
     #         leading to weird behaviour using the minimax algorithm.
     #solution: I cut off the search tree whenever a move leads to a win
-
     while True:
-        possible_human_moves = game.get_possible_moves(game.state)
-        human_move = int(input('Please enter your next move: '))
+        possible_human_moves = generate_moves(game.state)
+        try:
+            human_move = int(input('Please enter your next move: '))
+        except ValueError:
+            print('Invalid move. Please enter another move')
+            continue
         if human_move == -1:
             print('Thank you for playing!')
             break
@@ -181,27 +200,26 @@ if __name__ == '__main__':
         elif human_move not in possible_human_moves:
             print('Invalid move. Please enter another move')
             continue
-
-        game.state = game.modify_state(game.state, human_move, game.human)
+        game.state = modify_state(game.state, human_move, game.human)
         print(game.state)
-        if abs(game.evaluate(game.state, game.human, game.get_possible_moves(game.state) == 0)) == game.constant:
+        if game.evaluate(game.state, game.human, generate_moves(game.state) == 0) == -constant:
             print('HUMAN WON')
             break
 
-        game = Connect4(board=game.state)
-
         if selection == 'Alpha Beta Pruning':
+            game = Connect4(board=game.state)
             algorithm = Alpha_Beta_Pruning.Minimax([game.nodes, game.edges], False)
-        elif selection == 'Monte Carlo Search Tree':
-            pass
+            print('Leaf Nodes (count = {leaf_nodes})'.format(leaf_nodes=8 ** game.search_depth) + '\n')
+            ai_move = int(algorithm.path[1][-1])
+        elif selection == 'Monte Carlo Tree Search':
+            epochs = 10000
+            algorithm = MC_Tree_Search.MCTS(game.state, epochs, game_name=basename(__file__).strip('.py'))
+            ai_move = algorithm.optimal_next_move
 
-        print('Leaf Nodes (count = {leaf_nodes})'.format(leaf_nodes=8 ** game.search_depth) + '\n')
-
-        ai_move = int(algorithm.path[1][-1])
         print('AI move:', ai_move)
-        game.state = game.modify_state(game.state, ai_move, game.ai)
+        game.state = modify_state(game.state, ai_move, game.ai)
         print(game.state)
 
-        if abs(game.evaluate(game.state, game.ai, game.get_possible_moves(game.state) == 0)) == game.constant:
+        if game.evaluate(game.state, game.ai, generate_moves(game.state) == 0) == constant:
             print('AI WON')
             break
